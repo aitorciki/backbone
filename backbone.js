@@ -346,6 +346,10 @@
     // attributes if none given.
     newId : function(attrs) {
       attrs = attrs || this.attributes;
+      // If `id` has a single attribute, just return it to remain backwards
+      // compatible.
+      if (!_.isArray(this.idAttribute)) return attrs[this.idAttribute];
+
       var keys = _.intersection(_.rest(this._idAttributes, 0), _.keys(attrs));
       var values = _.map(keys, function(key) { return attrs[key] });
       return values.join('__');
