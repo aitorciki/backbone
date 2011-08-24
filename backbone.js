@@ -138,6 +138,7 @@
     }
     this.attributes = {};
     this._escapedAttributes = {};
+    this._idAttributes = _.isArray(this.idAttribute) ? this.idAttribute : [this.idAttribute];
     this.cid = _.uniqueId('c');
     this.set(attributes, {silent : true});
     this._changed = false;
@@ -201,9 +202,6 @@
       // Run validation.
       if (!options.silent && this.validate && !this._performValidation(attrs, options)) return false;
 
-      // Check for changes of `id`.
-      if (this.idAttribute in attrs) this.id = attrs[this.idAttribute];
-
       // We're about to start triggering change events.
       var alreadyChanging = this._changing;
       this._changing = true;
@@ -218,6 +216,9 @@
           if (!options.silent) this.trigger('change:' + attr, this, val, options);
         }
       }
+
+      // Check for changes of `id`.
+      this._updateId(attrs);
 
       // Fire the `"change"` event, if the model has been changed.
       if (!alreadyChanging && !options.silent && this._changed) this.change(options);
@@ -240,7 +241,8 @@
       // Remove the attribute.
       delete this.attributes[attr];
       delete this._escapedAttributes[attr];
-      if (attr == this.idAttribute) delete this.id;
+      // If the attribute is part of the id, unset the id.
+      if (_.include(this._idAttributes, attr)) delete this.id;
       this._changed = true;
       if (!options.silent) {
         this.trigger('change:' + attr, this, void 0, options);
@@ -340,6 +342,15 @@
       return new this.constructor(this);
     },
 
+    // Generates a new `id` using the passed attributes or the model current
+    // attributes if none given.
+    newId : function(attrs) {
+      attrs = attrs || this.attributes;
+      var keys = _.intersection(_.rest(this._idAttributes, 0), _.keys(attrs));
+      var values = _.map(keys, function(key) { return attrs[key] });
+      return values.join('__');
+    },
+
     // A model is new if it has never been saved to the server, and lacks an id.
     isNew : function() {
       return this.id == null;
@@ -404,6 +415,15 @@
         return false;
       }
       return true;
+    },
+
+    // Checks if any of the `id` attributes has changed in the new set of
+    // attributes and updates the `id` in that case.
+    _updateId : function(attrs) {
+      var updateId = _.any(this._idAttributes, function(attr) {
+        return _.include(_.keys(attrs), attr);
+      });
+      if (updateId) this.id = this.newId();
     }
 
   });
@@ -628,10 +648,15 @@
       if (ev == 'destroy') {
         this._remove(model, options);
       }
-      if (model && ev === 'change:' + model.idAttribute) {
-        delete this._byId[model.previous(model.idAttribute)];
-        this._byId[model.id] = model;
-      }
+
+      // Check if any model `id` attribute has changed and reindex by
+      // the new `id` in that case.
+      var updateId = _.any(model._idAttributes, function(attr) {
+        return (model && ev === 'change:' + attr);
+      });
+      delete this._byId[model.newId(model.previousAttributes())];
+      this._byId[model.id] = model;
+
       this.trigger.apply(this, arguments);
     }
 
