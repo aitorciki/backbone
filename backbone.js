@@ -284,6 +284,7 @@
       var success = options.success;
       options.success = function(resp, status, xhr) {
         if (!model.set(model.parse(resp, xhr), options)) return false;
+        model.setRemoteId();
         if (success) success(model, resp);
       };
       options.error = wrapError(options.error, model, options);
@@ -300,6 +301,7 @@
       var success = options.success;
       options.success = function(resp, status, xhr) {
         if (!model.set(model.parse(resp, xhr), options)) return false;
+        model.setRemoteId();
         if (success) success(model, resp, xhr);
       };
       options.error = wrapError(options.error, model, options);
@@ -328,7 +330,8 @@
     url : function() {
       var base = getUrl(this.collection) || this.urlRoot || urlError();
       if (this.isNew()) return base;
-      return base + (base.charAt(base.length - 1) == '/' ? '' : '/') + encodeURIComponent(this.id);
+      var resource = _.map(this.remoteId, encodeURIComponent).join('/');
+      return base + (base.charAt(base.length - 1) == '/' ? '' : '/') + resource;
     },
 
     // **parse** converts a response into the hash of attributes to be `set` on
@@ -345,19 +348,16 @@
     // Generates a new `id` using the passed attributes or the model current
     // attributes if none given.
     newId : function(attrs) {
-      attrs = attrs || this.attributes;
+      attrs || (attrs = this.attributes);
       // If `id` has a single attribute, just return it to remain backwards
       // compatible.
       if (!_.isArray(this.idAttribute)) return attrs[this.idAttribute];
-
-      var keys = _.intersection(_.rest(this._idAttributes, 0), _.keys(attrs));
-      var values = _.map(keys, function(key) { return attrs[key] });
-      return values.join('__');
+      return this._idValues(attrs).join('__');
     },
 
     // A model is new if it has never been saved to the server, and lacks an id.
     isNew : function() {
-      return this.id == null;
+      return this.remoteId == null;
     },
 
     // Call this method to manually fire a `change` event for this model.
@@ -421,6 +421,10 @@
       return true;
     },
 
+    setRemoteId : function() {
+      this.remoteId = this._idValues();
+    },
+
     // Checks if any of the `id` attributes has changed in the new set of
     // attributes and updates the `id` in that case.
     _updateId : function(attrs) {
@@ -428,6 +432,13 @@
         return _.include(_.keys(attrs), attr);
       });
       if (updateId) this.id = this.newId();
+    },
+
+    // Returns an array of the `id` attributes values.
+    _idValues : function(attrs) {
+      attrs || (attrs = this.attributes);
+      var keys = _.intersection(_.rest(this._idAttributes, 0), _.keys(attrs));
+      return _.map(keys, function(key) { return attrs[key] });
     }
 
   });
@@ -467,12 +478,15 @@
     // Add a model, or list of models to the set. Pass **silent** to avoid
     // firing the `added` event for every new model.
     add : function(models, options) {
+      options || (options = {});
       if (_.isArray(models)) {
         for (var i = 0, l = models.length; i < l; i++) {
-          this._add(models[i], options);
+          var model = this._add(models[i], options);
+          if (options.synced) model.setRemoteId();
         }
       } else {
-        this._add(models, options);
+        var model = this._add(models, options);
+        if (options.synced) model.setRemoteId();
       }
       return this;
     },
@@ -527,9 +541,10 @@
     reset : function(models, options) {
       models  || (models = []);
       options || (options = {});
+      options = _.defaults(options, {synced: true});
       this.each(this._removeReference);
       this._reset();
-      this.add(models, {silent: true});
+      this.add(models, {silent: true, synced: options.synced});
       if (!options.silent) this.trigger('reset', this, options);
       return this;
     },
@@ -559,6 +574,7 @@
       if (!model) return false;
       var success = options.success;
       options.success = function(nextModel, resp, xhr) {
+        options.synced = true;
         coll.add(nextModel, options);
         if (success) success(nextModel, resp, xhr);
       };
